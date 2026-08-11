@@ -1,0 +1,19 @@
+# artefactos de build
+dist/
+public/
+*.deb
+
+# python
+__pycache__/
+*.pyc
+
+# artefactos de dpkg-buildpackage (en debian/)
+debian/.debhelper/
+debian/debhelper-build-stamp
+debian/files
+debian/kraven/
+debian/kraven.substvars
+debian/*.log
+
+# varios
+.DS_Store

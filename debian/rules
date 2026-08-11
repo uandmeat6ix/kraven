@@ -1,0 +1,5 @@
+#!/usr/bin/make -f
+# Paquete simple: un script Python + su man page. debhelper hace el resto.
+
+%:
+	dh $@

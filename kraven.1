@@ -1,0 +1,50 @@
+.TH KRAVEN 6 "2026-08-11" "kraven 1.0.0" "Games"
+.SH NAME
+kraven \- apex intrusion suite (Hollywood, remastered)
+.SH SYNOPSIS
+.B kraven
+.RB [ \-\-fast ]
+.RB [ \-\-frames
+.IR N ]
+.RB [ \-\-help ]
+.SH DESCRIPTION
+.B kraven
+draws a cinematic, multi\-panel fake "hacking" dashboard in your terminal,
+in the spirit of the classic
+.B hollywood
+package but remastered: Matrix rain, a port sweep, exploit and brute\-force
+sequences, a live hexdump exfiltration and the classic
+.B "ACCESS GRANTED"
+banner, all rendered with ANSI escapes and looping through mission stages.
+.PP
+It is
+.B pure theatre:
+it performs no scanning, no exploitation and never touches the network. All
+addresses, services and output are randomly generated for visual effect only.
+.SH OPTIONS
+.TP
+.B \-\-fast
+Disable the typing effect and run at an accelerated pace.
+.TP
+.BI \-\-frames " N"
+Render
+.I N
+frames and exit. Useful for testing or for recording a clip.
+.TP
+.B \-\-help
+Show a short usage summary and exit.
+.SH KEYS
+.TP
+.B any key
+Inject a line of "code" into the shell (hacker\-typer mode).
+.TP
+.B SPACE
+Pause / resume the simulation.
+.TP
+.B q \fRor\fB Ctrl+C
+Quit and restore the terminal.
+.SH NOTES
+Requires a terminal of at least 74x20. Uses only the Python 3 standard
+library; no third\-party modules are needed.
+.SH AUTHOR
+Jarthur <jarthur.ch@gmail.com>

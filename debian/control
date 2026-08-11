@@ -1,0 +1,23 @@
+Source: kraven
+Section: games
+Priority: optional
+Maintainer: Jarthur <jarthur.ch@gmail.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.6.2
+Homepage: https://github.com/uandmeat6ix/kraven
+Vcs-Git: https://github.com/uandmeat6ix/kraven.git
+Vcs-Browser: https://github.com/uandmeat6ix/kraven
+Rules-Requires-Root: no
+
+Package: kraven
+Architecture: all
+Depends: ${misc:Depends}, python3
+Description: apex intrusion suite - Hollywood, remastered
+ kraven draws a cinematic, multi-panel fake "hacking" dashboard in your
+ terminal, in the spirit of the classic hollywood package but remastered:
+ Matrix rain, a port sweep, exploit and brute-force sequences, a live
+ hexdump exfiltration and the classic ACCESS GRANTED banner.
+ .
+ It is pure theatre: it performs no scanning, no exploitation and never
+ touches the network. All addresses, services and output are randomly
+ generated for visual effect only. Handy for demos, streams and pranks.

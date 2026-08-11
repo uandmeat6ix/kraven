@@ -1,0 +1,49 @@
+name: publish
+
+# Se dispara al empujar un tag de version, p.ej.:  git tag v1.0.0 && git push --tags
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # crear Release y empujar la rama gh-pages
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar herramientas de empaquetado
+        run: sudo apt-get update && sudo apt-get install -y dpkg-dev apt-utils
+
+      - name: Calcular version desde el tag
+        id: v
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Construir el .deb
+        run: |
+          cd packaging
+          ./build-deb.sh "${{ steps.v.outputs.version }}"
+
+      - name: Armar repositorio APT plano
+        run: |
+          mkdir -p public
+          cp dist/kraven_${{ steps.v.outputs.version }}_all.deb public/
+          cd public
+          apt-ftparchive packages . > Packages
+          gzip -kf Packages
+          apt-ftparchive release . > Release
+
+      - name: Adjuntar el .deb al GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.deb
+
+      - name: Publicar el repo APT en GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
+          publish_branch: gh-pages

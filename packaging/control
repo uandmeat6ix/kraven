@@ -1,0 +1,14 @@
+Package: kraven
+Version: 1.0.0
+Section: games
+Priority: optional
+Architecture: all
+Depends: python3
+Maintainer: jarthur <jarthur.ch@gmail.com>
+Description: apex intrusion suite - Hollywood, remastered
+ Pantalla de "hackeo" de pelicula para la terminal, en el espiritu del
+ clasico paquete hollywood pero remasterizada: lluvia Matrix, barrido de
+ puertos, exploits, fuerza bruta, exfiltracion de datos y el clasico
+ ACCESS GRANTED, todo dibujado con ANSI dentro de la terminal.
+ .
+ Es 100% teatro: NO escanea, NO explota y NO toca la red. Solo pinta texto.
