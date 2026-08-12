@@ -1,16 +1,16 @@
 Package: kraven
 Architecture: all
-Version: 1.0.1
+Version: 1.0.2
 Priority: optional
 Section: games
 Maintainer: jarthur <jarthur.ch@gmail.com>
 Depends: python3
-Filename: ./kraven_1.0.1_all.deb
-Size: 9232
-MD5sum: 337bbf6fee38db50ebd1ddc7287f71b3
-SHA1: b0259e8c298e038d36adbf6daeaef79f1b634821
-SHA256: 23afd2ad43f749ce4f5634f7e79aad01b63ee1f79bfd9028d2ab15eaaf7f2b42
-SHA512: 98323c717a3af55d8fd57c16919fc56628d8116aae2a41b5b976fd229262caa40fe82c304b17e35f7252d775908f820a33e47cd3fdde8e02fe4c1a7982cc21de
+Filename: ./kraven_1.0.2_all.deb
+Size: 9308
+MD5sum: fe1c227f32ccd28cbe91101bfa5991be
+SHA1: 3496b8d1172824ee7ac6b75607e4bfab4ee27ddc
+SHA256: 1f977e85adf391c91e19a1a7c7b0301af0725cf1770c54623ed4aa93835804c1
+SHA512: a6a17c168e8fc5fa63f66a9a96076245fc0cf03d3127ac9e7371967e9691c825ab3eefc3955fd3f86ff5b2a8d170d306c9bbe52a18466ea907902b58a50e42a3
 Description: apex intrusion suite - Hollywood, remastered
  Pantalla de "hackeo" de pelicula para la terminal, en el espiritu del
  clasico paquete hollywood pero remasterizada: lluvia Matrix, barrido de
