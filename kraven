@@ -43,7 +43,9 @@ INKD   = fg(63, 138, 99)
 BASE   = fg(40, 90, 66)
 RESET  = "\033[0m"
 
-GLYPHS = list("アカサタナハマヤ0123456789ABCDEF#%$@&*<>=/\\|")
+# Solo caracteres de 1 columna (ASCII): evita el descuadre por glifos de doble
+# ancho (p.ej. katakana), que ocupan 2 celdas en la terminal.
+GLYPHS = list("0123456789ABCDEF<>[]{}#%$@&*/\\|=+-!?~^:;.")
 
 # ----------------------------------------------------------------------------
 # Terminal canvas: compone todo el frame en memoria y lo escribe de una,
@@ -121,8 +123,6 @@ class Canvas:
                 line.append(row[x])
             line.append(RESET)
             out.append("".join(line))
-            if y != self.h - 1:
-                out.append("\n")
         return "".join(out)
 
 # ----------------------------------------------------------------------------
@@ -651,7 +651,7 @@ def main():
         import tty
         old = termios.tcgetattr(sys.stdin)
         tty.setraw(sys.stdin.fileno())
-        sys.stdout.write("\033[?1049h\033[?25l")  # alt screen + hide cursor
+        sys.stdout.write("\033[?1049h\033[?25l\033[?7l")  # alt screen, hide cursor, no autowrap
         sys.stdout.flush()
 
     size = shutil.get_terminal_size((100, 32))
@@ -700,7 +700,7 @@ def main():
     finally:
         if is_tty and old is not None:
             import termios
-            sys.stdout.write("\033[?25h\033[?1049l")  # show cursor + main screen
+            sys.stdout.write("\033[?7h\033[?25h\033[?1049l")  # restore autowrap, cursor, main screen
             sys.stdout.flush()
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
     return rc

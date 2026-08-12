@@ -1,3 +1,11 @@
+kraven (1.0.1-1) unstable; urgency=medium
+
+  * Fix layout misalignment on real terminals: use single-width (ASCII)
+    glyphs in the matrix rain instead of double-width katakana.
+  * Disable line auto-wrap while running to avoid bottom-right scrolling.
+
+ -- Jarthur <jarthur.ch@gmail.com>  Tue, 12 Aug 2026 00:00:00 +0000
+
 kraven (1.0.0-1) unstable; urgency=medium
 
   * Initial release.
