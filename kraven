@@ -109,8 +109,11 @@ class Canvas:
             self.put(x + 4 + len(title), y, " ├", color)
 
     def render(self):
-        out = ["\033[H"]
+        # Posiciona cada fila con su coordenada absoluta (no depende de '\n'):
+        # evita el scroll de la esquina inferior y dibuja todas las filas.
+        out = []
         for y in range(self.h):
+            out.append("\033[%d;1H" % (y + 1))
             cur = None
             line = []
             row = self.ch[y]
@@ -651,7 +654,7 @@ def main():
         import tty
         old = termios.tcgetattr(sys.stdin)
         tty.setraw(sys.stdin.fileno())
-        sys.stdout.write("\033[?1049h\033[?25l\033[?7l")  # alt screen, hide cursor, no autowrap
+        sys.stdout.write("\033[?1049h\033[?25l")  # alt screen + hide cursor
         sys.stdout.flush()
 
     size = shutil.get_terminal_size((100, 32))
@@ -700,7 +703,7 @@ def main():
     finally:
         if is_tty and old is not None:
             import termios
-            sys.stdout.write("\033[?7h\033[?25h\033[?1049l")  # restore autowrap, cursor, main screen
+            sys.stdout.write("\033[?25h\033[?1049l")  # show cursor + main screen
             sys.stdout.flush()
             termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old)
     return rc

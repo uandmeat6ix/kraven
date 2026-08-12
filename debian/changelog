@@ -1,3 +1,11 @@
+kraven (1.0.2-1) unstable; urgency=medium
+
+  * Fix regression where only the header rendered: position each row with an
+    absolute cursor move instead of relying on newlines (which were removed in
+    1.0.1 to stop bottom-right scrolling). Now the full dashboard draws again.
+
+ -- Jarthur <jarthur.ch@gmail.com>  Tue, 12 Aug 2026 16:00:00 +0000
+
 kraven (1.0.1-1) unstable; urgency=medium
 
   * Fix layout misalignment on real terminals: use single-width (ASCII)
